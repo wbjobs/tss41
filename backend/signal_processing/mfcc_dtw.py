@@ -3,6 +3,46 @@ import sys
 import json
 import base64
 
+def normalize_audio(signal, target_rms=0.1):
+    signal = signal - np.mean(signal)
+    
+    rms = np.sqrt(np.mean(signal ** 2))
+    if rms < 1e-8:
+        return signal
+    
+    gain = target_rms / rms
+    normalized = signal * gain
+    
+    peak = np.max(np.abs(normalized))
+    if peak > 0.95:
+        normalized = normalized * (0.95 / peak)
+    
+    return normalized
+
+def remove_dc_offset(signal):
+    return signal - np.mean(signal)
+
+def detect_clipping(signal, threshold=0.95):
+    clipped_samples = np.sum(np.abs(signal) >= threshold)
+    clipping_ratio = clipped_samples / len(signal)
+    return clipping_ratio
+
+def soft_clip_repair(signal, threshold=0.95, strength=0.5):
+    signal = signal.copy()
+    mask = np.abs(signal) > threshold
+    
+    if not np.any(mask):
+        return signal
+    
+    sign = np.sign(signal)
+    abs_signal = np.abs(signal)
+    overshoot = abs_signal - threshold
+    repaired = threshold + overshoot * (1 - strength)
+    repaired = np.minimum(repaired, threshold * 1.2)
+    
+    signal[mask] = sign[mask] * repaired[mask]
+    return signal
+
 def pre_emphasis(signal, alpha=0.97):
     return np.append(signal[0], signal[1:] - alpha * signal[:-1])
 
@@ -66,16 +106,96 @@ def discrete_cosine_transform(filter_banks, num_ceps=13):
     
     return cepstral
 
+def cmvn_normalization(mfcc):
+    if len(mfcc) <= 1:
+        return mfcc
+    
+    mean = np.mean(mfcc, axis=0)
+    std = np.std(mfcc, axis=0) + 1e-8
+    normalized = (mfcc - mean) / std
+    
+    return normalized
+
+def l2_normalize_frames(mfcc):
+    norms = np.linalg.norm(mfcc, axis=1, keepdims=True) + 1e-8
+    return mfcc / norms
+
+def linear_interpolate(x, y, x_new):
+    n = len(x)
+    m = len(x_new)
+    y_new = np.zeros(m)
+    
+    for i in range(m):
+        xi = x_new[i]
+        
+        if xi <= x[0]:
+            y_new[i] = y[0]
+            continue
+        if xi >= x[-1]:
+            y_new[i] = y[-1]
+            continue
+        
+        idx = np.searchsorted(x, xi) - 1
+        idx = max(0, min(n - 2, idx))
+        
+        x0, x1 = x[idx], x[idx + 1]
+        y0, y1 = y[idx], y[idx + 1]
+        
+        if x1 == x0:
+            y_new[i] = y0
+        else:
+            t = (xi - x0) / (x1 - x0)
+            y_new[i] = y0 + t * (y1 - y0)
+    
+    return y_new
+
+def time_normalize(mfcc, target_frames=100):
+    n_frames, n_coeffs = mfcc.shape
+    
+    if n_frames == target_frames:
+        return mfcc
+    
+    original_indices = np.arange(n_frames, dtype=np.float64)
+    target_indices = np.linspace(0, n_frames - 1, target_frames)
+    
+    normalized = np.zeros((target_frames, n_coeffs))
+    
+    for i in range(n_coeffs):
+        normalized[:, i] = linear_interpolate(original_indices, mfcc[:, i], target_indices)
+    
+    return normalized
+
+def feature_standardization(mfcc):
+    flattened = mfcc.flatten()
+    mean = np.mean(flattened)
+    std = np.std(flattened) + 1e-8
+    
+    standardized = (mfcc - mean) / std
+    return standardized
+
 def extract_mfcc(audio_data, sample_rate=16000, num_ceps=13, nfilt=40, NFFT=512):
-    signal = pre_emphasis(audio_data)
+    signal = audio_data.copy()
+    
+    signal = remove_dc_offset(signal)
+    
+    clipping_ratio = detect_clipping(signal)
+    if clipping_ratio > 0.001:
+        signal = soft_clip_repair(signal, threshold=0.95, strength=0.6)
+    
+    signal = normalize_audio(signal, target_rms=0.1)
+    
+    signal = pre_emphasis(signal)
     frames = framing(signal, sample_rate)
     frames = windowing(frames)
     pow_frames = power_spectrum(frames, NFFT)
     filter_banks = mel_filter_banks(pow_frames, sample_rate, nfilt, NFFT)
     mfcc = discrete_cosine_transform(filter_banks, num_ceps)
     
-    if len(mfcc) > 1:
-        mfcc = mfcc - (np.mean(mfcc, axis=0) + 1e-8)
+    mfcc = cmvn_normalization(mfcc)
+    
+    mfcc = feature_standardization(mfcc)
+    
+    mfcc = l2_normalize_frames(mfcc)
     
     return mfcc
 
@@ -122,23 +242,43 @@ def normalize_mfcc(mfcc):
     std = np.std(mfcc, axis=0) + 1e-8
     return (mfcc - mean) / std
 
-def calculate_similarity(mfcc1, mfcc2, threshold=1000.0):
-    mfcc1_norm = normalize_mfcc(np.array(mfcc1))
-    mfcc2_norm = normalize_mfcc(np.array(mfcc2))
+def calculate_similarity(mfcc1, mfcc2, threshold=0.8):
+    mfcc1_arr = np.array(mfcc1)
+    mfcc2_arr = np.array(mfcc2)
+    
+    mfcc1_norm = cmvn_normalization(mfcc1_arr)
+    mfcc2_norm = cmvn_normalization(mfcc2_arr)
+    
+    mfcc1_norm = feature_standardization(mfcc1_norm)
+    mfcc2_norm = feature_standardization(mfcc2_norm)
+    
+    mfcc1_norm = l2_normalize_frames(mfcc1_norm)
+    mfcc2_norm = l2_normalize_frames(mfcc2_norm)
+    
+    min_frames = min(mfcc1_norm.shape[0], mfcc2_norm.shape[0])
+    target_frames = max(50, min(min_frames, 200))
+    mfcc1_norm = time_normalize(mfcc1_norm, target_frames)
+    mfcc2_norm = time_normalize(mfcc2_norm, target_frames)
     
     distance, path = dtw_distance(mfcc1_norm, mfcc2_norm)
     
     path_length = len(path)
     normalized_distance = distance / path_length
     
-    is_match = normalized_distance < threshold
+    similarity = 1.0 / (1.0 + normalized_distance)
+    
+    is_match = similarity > threshold
     
     return {
         'distance': float(distance),
         'normalized_distance': float(normalized_distance),
+        'similarity_score': float(similarity),
         'is_match': bool(is_match),
         'threshold': float(threshold),
-        'path_length': path_length
+        'path_length': path_length,
+        'mfcc1_frames': mfcc1_arr.shape[0],
+        'mfcc2_frames': mfcc2_arr.shape[0],
+        'normalized_frames': target_frames
     }
 
 def main():
@@ -152,14 +292,17 @@ def main():
         audio2 = np.frombuffer(audio2_bytes, dtype=np.float32)
         
         sample_rate = input_data.get('sample_rate', 16000)
-        threshold = input_data.get('threshold', 1000.0)
+        threshold = input_data.get('threshold', 0.75)
         
-        mfcc1 = extract_mfcc(audio1, sample_rate).tolist()
-        mfcc2 = extract_mfcc(audio2, sample_rate).tolist()
+        clipping1 = float(detect_clipping(audio1))
+        clipping2 = float(detect_clipping(audio2))
         
-        result = calculate_similarity(mfcc1, mfcc2, threshold)
-        result['mfcc1_frames'] = len(mfcc1)
-        result['mfcc2_frames'] = len(mfcc2)
+        mfcc1 = extract_mfcc(audio1, sample_rate)
+        mfcc2 = extract_mfcc(audio2, sample_rate)
+        
+        result = calculate_similarity(mfcc1.tolist(), mfcc2.tolist(), threshold)
+        result['input_clipping_ratio_1'] = clipping1
+        result['input_clipping_ratio_2'] = clipping2
         
         print(json.dumps(result))
         sys.stdout.flush()

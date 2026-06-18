@@ -66,7 +66,7 @@ class PythonBridge {
     });
   }
 
-  async compareAudio(audio1Base64, audio2Base64, sampleRate = 16000, threshold = 1000.0) {
+  async compareAudio(audio1Base64, audio2Base64, sampleRate = 16000, threshold = 0.75) {
     const inputData = {
       audio1: audio1Base64,
       audio2: audio2Base64,
@@ -83,7 +83,7 @@ class AudioMatcher {
     const scriptPath = options.scriptPath || path.join(__dirname, 'signal_processing', 'mfcc_dtw.py');
     const pythonExecutable = options.pythonExecutable || 'python3';
     this.bridge = new PythonBridge(scriptPath, pythonExecutable);
-    this.defaultThreshold = options.threshold || 1000.0;
+    this.defaultThreshold = options.threshold || 0.75;
   }
 
   async match(audio1, audio2, sampleRate) {

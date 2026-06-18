@@ -5,14 +5,18 @@ const cryptoUtils = require('./cryptoUtils');
 
 const PORT = process.env.PORT || 8080;
 const PYTHON_EXECUTABLE = process.env.PYTHON_EXECUTABLE || 'python3';
-const DTW_THRESHOLD = parseFloat(process.env.DTW_THRESHOLD) || 1000.0;
+const MATCH_THRESHOLD = parseFloat(process.env.MATCH_THRESHOLD) || 0.75;
 const SESSION_TIMEOUT = parseInt(process.env.SESSION_TIMEOUT) || 30000;
+const AUDIO_TIMEOUT = parseInt(process.env.AUDIO_TIMEOUT) || 15000;
 
 const wss = new WebSocket.Server({ port: PORT });
-const sessionPool = new SessionPool({ sessionTimeoutMs: SESSION_TIMEOUT });
+const sessionPool = new SessionPool({ 
+  sessionTimeoutMs: SESSION_TIMEOUT,
+  audioTimeoutMs: AUDIO_TIMEOUT
+});
 const audioMatcher = new AudioMatcher({
   pythonExecutable: PYTHON_EXECUTABLE,
-  threshold: DTW_THRESHOLD
+  threshold: MATCH_THRESHOLD
 });
 
 const clients = new Map();
@@ -22,8 +26,9 @@ console.log('Audio Pairing Backend Server');
 console.log('='.repeat(60));
 console.log(`WebSocket Server listening on port ${PORT}`);
 console.log(`Python executable: ${PYTHON_EXECUTABLE}`);
-console.log(`DTW threshold: ${DTW_THRESHOLD}`);
+console.log(`Match threshold: ${MATCH_THRESHOLD}`);
 console.log(`Session timeout: ${SESSION_TIMEOUT}ms`);
+console.log(`Audio timeout: ${AUDIO_TIMEOUT}ms`);
 console.log('='.repeat(60));
 
 wss.on('connection', (ws, req) => {
@@ -454,6 +459,27 @@ sessionPool.on('session:timeout', (data) => {
       sessionId: data.sessionId
     });
   }
+});
+
+sessionPool.on('session:audio_timeout', (data) => {
+  console.log(`[Event] Session ${data.sessionId} audio fingerprint timeout`);
+  
+  const session = sessionPool.getSession(data.sessionId);
+  if (session) {
+    broadcastToSession(data.sessionId, {
+      type: 'pairing_failed',
+      sessionId: data.sessionId,
+      reason: 'Audio fingerprint timeout - partner did not submit audio in time'
+    });
+    
+    setTimeout(() => {
+      sessionPool.destroySession(data.sessionId);
+    }, 1000);
+  }
+});
+
+sessionPool.on('session:failed', (data) => {
+  console.log(`[Event] Session ${data.sessionId} failed: ${data.reason}`);
 });
 
 sessionPool.on('session:destroyed', (data) => {

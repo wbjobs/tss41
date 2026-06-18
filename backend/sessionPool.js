@@ -1,16 +1,20 @@
 const EventEmitter = require('events');
 
 class PairingSession {
-  constructor(id, timeoutMs = 30000) {
+  constructor(id, timeoutMs = 30000, audioTimeoutMs = 15000) {
     this.id = id;
     this.clients = new Map();
     this.createdAt = Date.now();
     this.timeoutMs = timeoutMs;
+    this.audioTimeoutMs = audioTimeoutMs;
     this.status = 'waiting';
     this.aesKey = null;
     this.encryptionKey = null;
     this.timeoutTimer = null;
+    this.audioTimeoutTimer = null;
+    this.firstAudioAt = null;
     this.onDestroy = null;
+    this.onAudioTimeout = null;
   }
 
   addClient(clientId, ws, platform) {
@@ -56,6 +60,32 @@ class PairingSession {
     if (client) {
       client.audioData = audioData;
       client.sampleRate = sampleRate;
+      client.audioReceivedAt = Date.now();
+      
+      if (!this.firstAudioAt) {
+        this.firstAudioAt = Date.now();
+        this.startAudioTimeout();
+      }
+    }
+  }
+  
+  startAudioTimeout() {
+    this.clearAudioTimeout();
+    
+    this.audioTimeoutTimer = setTimeout(() => {
+      if (this.status !== 'paired' && this.status !== 'failed') {
+        console.log(`Session ${this.id} audio timeout after ${this.audioTimeoutMs}ms`);
+        if (this.onAudioTimeout) {
+          this.onAudioTimeout(this.id);
+        }
+      }
+    }, this.audioTimeoutMs);
+  }
+  
+  clearAudioTimeout() {
+    if (this.audioTimeoutTimer) {
+      clearTimeout(this.audioTimeoutTimer);
+      this.audioTimeoutTimer = null;
     }
   }
 
@@ -86,12 +116,14 @@ class PairingSession {
     }
     
     this.clearTimeout();
+    this.clearAudioTimeout();
   }
 
   setFailed(reason) {
     this.status = 'failed';
     this.failureReason = reason;
     this.clearTimeout();
+    this.clearAudioTimeout();
   }
 
   resetTimeout() {
@@ -112,6 +144,7 @@ class PairingSession {
 
   destroy() {
     this.clearTimeout();
+    this.clearAudioTimeout();
     this.clients.clear();
   }
 
@@ -132,19 +165,33 @@ class SessionPool extends EventEmitter {
     this.sessions = new Map();
     this.clientToSession = new Map();
     this.sessionTimeoutMs = options.sessionTimeoutMs || 30000;
+    this.audioTimeoutMs = options.audioTimeoutMs || 15000;
     this.cleanupIntervalMs = options.cleanupIntervalMs || 5000;
     this.cleanupTimer = null;
     this.startCleanup();
   }
 
-  createSession(timeoutMs) {
+  createSession(timeoutMs, audioTimeoutMs) {
     const { v4: uuidv4 } = require('uuid');
     const sessionId = uuidv4();
-    const session = new PairingSession(sessionId, timeoutMs || this.sessionTimeoutMs);
+    const session = new PairingSession(
+      sessionId, 
+      timeoutMs || this.sessionTimeoutMs,
+      audioTimeoutMs || this.audioTimeoutMs
+    );
     
     session.onDestroy = (id, reason) => {
       this.emit('session:timeout', { sessionId: id, reason });
       this.destroySession(id);
+    };
+    
+    session.onAudioTimeout = (id) => {
+      this.emit('session:audio_timeout', { sessionId: id });
+      const sess = this.sessions.get(id);
+      if (sess) {
+        sess.setFailed('Audio fingerprint timeout');
+        this.emit('session:failed', { sessionId: id, reason: 'audio_timeout' });
+      }
     };
     
     this.sessions.set(sessionId, session);
