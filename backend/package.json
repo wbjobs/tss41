@@ -1,0 +1,14 @@
+{
+  "name": "audio-pairing-backend",
+  "version": "1.0.0",
+  "description": "WebSocket backend for audio-based device pairing",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "dependencies": {
+    "ws": "^8.14.2",
+    "uuid": "^9.0.0"
+  }
+}

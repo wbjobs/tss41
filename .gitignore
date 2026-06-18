@@ -1,34 +1,40 @@
-﻿# System
-.DS_Store
-Thumbs.db
-desktop.ini
-
-# Logs
-*.log
-logs/
-
-# Temp
-*.tmp
-*.bak
-*.swp
-
-# Build / Dependencies
+﻿# Dependencies
 node_modules/
-dist/
-build/
-out/
-venv/
-env/
-__pycache__/
-*.pyc
+ios/.build/
+ios/Packages/
+android/.gradle/
+android/build/
+android/app/build/
 
 # IDE
 .idea/
 .vscode/
-*.suo
-*.user
-*.sln.cache
+*.iml
+*.ipr
+*.iws
+.DS_Store
 
-# Env
+# Build artifacts
+*.ipa
+*.apk
+*.aab
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Environment
 .env
 .env.local
+.env.*.local
+
+# Test
+coverage/
+.nyc_output/
+
+# Misc
+*.swp
+*.swo
+*~
