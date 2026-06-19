@@ -19,7 +19,10 @@ let package = Package(
         .target(
             name: "AudioPairingClient",
             dependencies: ["Starscream"],
-            path: "Sources"),
+            path: "Sources",
+            linkerSettings: [
+                .linkedLibrary("sqlite3")
+            ]),
         .testTarget(
             name: "AudioPairingClientTests",
             dependencies: ["AudioPairingClient"],

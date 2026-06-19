@@ -1,7 +1,7 @@
 const EventEmitter = require('events');
 
 class PairingSession {
-  constructor(id, timeoutMs = 30000, audioTimeoutMs = 15000) {
+  constructor(id, timeoutMs = 30000, audioTimeoutMs = 15000, mode = 'auto') {
     this.id = id;
     this.clients = new Map();
     this.createdAt = Date.now();
@@ -13,13 +13,26 @@ class PairingSession {
     this.timeoutTimer = null;
     this.audioTimeoutTimer = null;
     this.firstAudioAt = null;
+    this.mode = mode;
+    this.roomCode = null;
+    this.masterClientId = null;
     this.onDestroy = null;
     this.onAudioTimeout = null;
   }
 
-  addClient(clientId, ws, platform) {
+  addClient(clientId, ws, platform, role = 'auto', publicKeyFingerprint = null, deviceInfo = {}) {
     if (this.clients.size >= 2) {
       return false;
+    }
+    
+    let actualRole = role;
+    if (this.mode === 'master_slave') {
+      if (this.clients.size === 0) {
+        actualRole = 'master';
+        this.masterClientId = clientId;
+      } else {
+        actualRole = 'slave';
+      }
     }
     
     this.clients.set(clientId, {
@@ -27,7 +40,10 @@ class PairingSession {
       platform,
       audioData: null,
       sampleRate: null,
-      paired: false
+      paired: false,
+      role: actualRole,
+      publicKeyFingerprint,
+      deviceInfo
     });
     
     if (this.clients.size === 2) {
@@ -35,7 +51,32 @@ class PairingSession {
       this.resetTimeout();
     }
     
-    return true;
+    return actualRole;
+  }
+
+  setRoomCode(code) {
+    this.roomCode = code;
+  }
+
+  getMaster() {
+    if (!this.masterClientId) return null;
+    const client = this.clients.get(this.masterClientId);
+    if (!client) return null;
+    return { id: this.masterClientId, ...client };
+  }
+
+  getSlave() {
+    for (const [id, client] of this.clients.entries()) {
+      if (id !== this.masterClientId) {
+        return { id, ...client };
+      }
+    }
+    return null;
+  }
+
+  getRole(clientId) {
+    const client = this.clients.get(clientId);
+    return client ? client.role : null;
   }
 
   hasClient(clientId) {
@@ -152,7 +193,10 @@ class PairingSession {
     return {
       id: this.id,
       status: this.status,
+      mode: this.mode,
+      roomCode: this.roomCode,
       clientCount: this.clients.size,
+      masterClientId: this.masterClientId,
       createdAt: this.createdAt,
       ageMs: Date.now() - this.createdAt
     };
@@ -171,13 +215,14 @@ class SessionPool extends EventEmitter {
     this.startCleanup();
   }
 
-  createSession(timeoutMs, audioTimeoutMs) {
+  createSession(timeoutMs, audioTimeoutMs, mode = 'auto') {
     const { v4: uuidv4 } = require('uuid');
     const sessionId = uuidv4();
     const session = new PairingSession(
       sessionId, 
       timeoutMs || this.sessionTimeoutMs,
-      audioTimeoutMs || this.audioTimeoutMs
+      audioTimeoutMs || this.audioTimeoutMs,
+      mode
     );
     
     session.onDestroy = (id, reason) => {
@@ -205,9 +250,19 @@ class SessionPool extends EventEmitter {
     return this.sessions.get(sessionId);
   }
 
-  findWaitingSession(excludeClientId) {
+  getSessionByRoomCode(roomCode) {
+    for (const session of this.sessions.values()) {
+      if (session.roomCode === roomCode && session.status !== 'failed') {
+        return session;
+      }
+    }
+    return null;
+  }
+
+  findWaitingSession(excludeClientId, mode = null) {
     for (const session of this.sessions.values()) {
       if (session.status === 'waiting' && session.clients.size === 1) {
+        if (mode && session.mode !== mode) continue;
         const hasExcluded = excludeClientId && session.hasClient(excludeClientId);
         if (!hasExcluded) {
           return session;
@@ -217,22 +272,37 @@ class SessionPool extends EventEmitter {
     return null;
   }
 
-  addClientToSession(sessionId, clientId, ws, platform) {
+  findMasterSession(excludeClientId) {
+    for (const session of this.sessions.values()) {
+      if (session.status === 'waiting' && 
+          session.mode === 'master_slave' && 
+          session.clients.size === 1) {
+        const hasExcluded = excludeClientId && session.hasClient(excludeClientId);
+        if (!hasExcluded) {
+          return session;
+        }
+      }
+    }
+    return null;
+  }
+
+  addClientToSession(sessionId, clientId, ws, platform, role = 'auto', publicKeyFingerprint = null, deviceInfo = {}) {
     const session = this.sessions.get(sessionId);
     if (!session) return false;
     
-    const success = session.addClient(clientId, ws, platform);
-    if (success) {
+    const resultRole = session.addClient(clientId, ws, platform, role, publicKeyFingerprint, deviceInfo);
+    if (resultRole !== false) {
       this.clientToSession.set(clientId, sessionId);
       this.emit('session:client_joined', {
         sessionId,
         clientId,
         platform,
+        role: resultRole,
         clientCount: session.clients.size
       });
     }
     
-    return success;
+    return resultRole;
   }
 
   getSessionByClient(clientId) {

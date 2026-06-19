@@ -37,6 +37,148 @@
             android:layout_marginBottom="16dp"
             android:visibility="gone" />
 
+        <RadioGroup
+            android:id="@+id/modeRadioGroup"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center"
+            android:layout_marginBottom="12dp">
+
+            <RadioButton
+                android:id="@+id/radioAuto"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Auto"
+                android:checked="true"
+                android:layout_marginEnd="16dp" />
+
+            <RadioButton
+                android:id="@+id/radioMaster"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Master"
+                android:layout_marginEnd="16dp" />
+
+            <RadioButton
+                android:id="@+id/radioSlave"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Slave" />
+
+        </RadioGroup>
+
+        <LinearLayout
+            android:id="@+id/roomCodeContainer"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="16dp"
+            android:background="@drawable/waveform_background"
+            android:layout_marginBottom="12dp"
+            android:visibility="gone">
+
+            <TextView
+                android:id="@+id/roomCodeLabel"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Room Code"
+                android:textSize="14sp"
+                android:textColor="@android:color/darker_gray"
+                android:gravity="center"
+                android:layout_marginBottom="8dp" />
+
+            <TextView
+                android:id="@+id/roomCodeDisplay"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="------"
+                android:textSize="48sp"
+                android:textStyle="bold"
+                android:letterSpacing="0.2"
+                android:gravity="center"
+                android:fontFamily="monospace"
+                android:textColor="@color/colorPrimary"
+                android:layout_marginBottom="12dp"
+                android:visibility="gone" />
+
+            <EditText
+                android:id="@+id/roomCodeInput"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:hint="Enter 6-digit code"
+                android:inputType="number"
+                android:maxLength="6"
+                android:textSize="32sp"
+                android:gravity="center"
+                android:fontFamily="monospace"
+                android:letterSpacing="0.2"
+                android:background="@drawable/input_background"
+                android:padding="12dp"
+                android:layout_marginBottom="12dp"
+                android:visibility="gone" />
+
+            <Button
+                android:id="@+id/generateRoomCodeButton"
+                android:layout_width="match_parent"
+                android:layout_height="48dp"
+                android:text="Generate Room Code"
+                android:textSize="14sp"
+                android:textStyle="bold"
+                android:backgroundTint="@android:color/holo_indigo_dark"
+                android:textColor="@android:color/white"
+                android:visibility="gone" />
+
+            <Button
+                android:id="@+id/joinRoomButton"
+                android:layout_width="match_parent"
+                android:layout_height="48dp"
+                android:text="Join Room"
+                android:textSize="14sp"
+                android:textStyle="bold"
+                android:backgroundTint="@android:color/holo_purple"
+                android:textColor="@android:color/white"
+                android:visibility="gone" />
+
+        </LinearLayout>
+
+        <Button
+            android:id="@+id/showTrustedButton"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:text="Trusted Devices"
+            android:textSize="14sp"
+            android:backgroundTint="@android:color/holo_teal_dark"
+            android:textColor="@android:color/white"
+            android:layout_marginBottom="12dp"
+            android:visibility="gone" />
+
+        <LinearLayout
+            android:id="@+id/trustedDevicesContainer"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:layout_marginBottom="12dp"
+            android:visibility="gone">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Trusted Devices (tap to quick reconnect)"
+                android:textSize="13sp"
+                android:textStyle="bold"
+                android:textColor="@android:color/holo_green_dark"
+                android:layout_marginBottom="8dp" />
+
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/trustedDevicesRecyclerView"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@drawable/message_background"
+                android:padding="4dp" />
+
+        </LinearLayout>
+
         <Button
             android:id="@+id/pairButton"
             android:layout_width="match_parent"
